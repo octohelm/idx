@@ -1,0 +1,9 @@
+.idea/
+.tmp/
+
+coverage.txt
+*.out
+
+.DS_Store
+
+*.sqlite
