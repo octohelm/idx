@@ -2,6 +2,7 @@ package snowflake
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -92,6 +93,76 @@ func TestSnowflake_WithDifferentWorkerID(t *testing.T) {
 	wg.Wait()
 
 	suite.ExpectN(suite.N * n)
+}
+
+func TestFactoryMetadata(t *testing.T) {
+	startTime, _ := time.Parse(time.RFC3339, "2020-01-01T00:00:00Z")
+	f := NewFactory(10, 12, 1, startTime)
+
+	if got := f.MaxWorkerID(); got != 1023 {
+		t.Fatalf("expect max worker id 1023, got %d", got)
+	}
+
+	if got := f.MaxSequence(); got != 4095 {
+		t.Fatalf("expect max sequence 4095, got %d", got)
+	}
+
+	if got := f.MaxTime(); !got.After(startTime) {
+		t.Fatalf("expect max time after start time, got %s", got)
+	}
+}
+
+func TestFactoryBuildID_OverTimeLimit(t *testing.T) {
+	f := NewFactory(10, 12, 1, time.Now())
+
+	if _, err := f.BuildID(1, 1<<f.bitLenTimestamp, 1); err == nil {
+		t.Fatal("expect error when elapsed time exceeds limit")
+	}
+}
+
+func TestFactoryNewSnowflake_InvalidWorkerID(t *testing.T) {
+	f := NewFactory(1, 12, 1, time.Now())
+
+	_, err := f.NewSnowflake(3)
+	if err == nil {
+		t.Fatal("expect invalid worker id error")
+	}
+
+	if !strings.Contains(err.Error(), "worker id can't be large than 1") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestSnowflakeWorkerID(t *testing.T) {
+	generator, err := NewSnowflake(7)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := generator.WorkerID(); got != 7 {
+		t.Fatalf("expect worker id 7, got %d", got)
+	}
+}
+
+func TestSnowflakeID_InvalidSystemClock(t *testing.T) {
+	f := &Factory{
+		bitLenWorkerID:  10,
+		bitLenSequence:  12,
+		bitLenTimestamp: 41,
+		startTime:       time.Now(),
+		unit:            time.Hour,
+	}
+
+	generator := &Snowflake{
+		f:           f,
+		workerID:    1,
+		elapsedTime: 1,
+		syncMutex:   &sync.Mutex{},
+	}
+
+	if _, err := generator.ID(); err != InvalidSystemClock {
+		t.Fatalf("expect %v, got %v", InvalidSystemClock, err)
+	}
 }
 
 func NewTestSuite(t *testing.T, n int) *Suite {
